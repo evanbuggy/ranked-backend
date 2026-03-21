@@ -1,4 +1,6 @@
 HELP.md
+
+# Never commit Maven output (large; regenerates with mvn package)
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

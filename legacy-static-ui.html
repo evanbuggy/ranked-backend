@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tournament Data Visualisation Tool</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg0: #f7f8fc;
+        --bg1: #eef1ff;
+        --card: rgba(255, 255, 255, 0.86);
+        --text: #0f172a;
+        --muted: #64748b;
+        --border: rgba(15, 23, 42, 0.12);
+        --shadow: 0 16px 40px rgba(2, 6, 23, 0.10);
+        --primary: #0ea5e9;
+        --primary-ink: #075985;
+        --ok: #16a34a;
+        --fail: #dc2626;
+        --run: #64748b;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        margin: 0;
+        padding: 28px 18px;
+        color: var(--text);
+        min-height: 100vh;
+        background:
+          radial-gradient(1000px 500px at 10% -10%, rgba(14, 165, 233, 0.25), transparent 60%),
+          radial-gradient(900px 450px at 90% 0%, rgba(99, 102, 241, 0.22), transparent 55%),
+          linear-gradient(180deg, var(--bg1) 0%, var(--bg0) 100%);
+      }
+
+      .wrap { max-width: 1100px; margin: 0 auto; }
+      h1 { margin: 0 0 16px; font-size: 22px; letter-spacing: -0.02em; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(6px);
+        position: relative;
+        transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+      }
+
+      .card:hover {
+        transform: translateY(-1px);
+        border-color: rgba(14, 165, 233, 0.25);
+        box-shadow: 0 18px 55px rgba(2, 6, 23, 0.14);
+      }
+
+      .card::before {
+        content: "";
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        top: 12px;
+        height: 2px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(14, 165, 233, 0.0) 0%, rgba(14, 165, 233, 0.8) 18%, rgba(99, 102, 241, 0.55) 55%, rgba(14, 165, 233, 0.0) 100%);
+        pointer-events: none;
+      }
+
+      #authArea .card::before { display: none; }
+      #authArea {
+        background: linear-gradient(180deg, rgba(14, 165, 233, 0.10) 0%, rgba(255, 255, 255, 0.70) 80%);
+      }
+
+      label {
+        display: block;
+        font-size: 13px;
+        margin-top: 10px;
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-weight: 650;
+        white-space: normal;
+      }
+
+      input, button, select {
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.9);
+        color: var(--text);
+        box-sizing: border-box;
+      }
+
+      input:focus, select:focus {
+        outline: none;
+        border-color: rgba(14, 165, 233, 0.55);
+        box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.18);
+        background: #fff;
+      }
+
+      /* Ensure the long tournament link input fits inside the card. */
+      #tournamentLink {
+        width: 100% !important;
+        max-width: 100%;
+        display: block;
+        box-sizing: border-box;
+      }
+
+      button {
+        cursor: pointer;
+        background: var(--primary);
+        color: #fff;
+        border: 1px solid rgba(14, 165, 233, 0.6);
+        font-weight: 650;
+        transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
+        padding: 10px 14px;
+      }
+      button:hover { transform: translateY(-1px); filter: brightness(1.02); box-shadow: 0 10px 25px rgba(14, 165, 233, 0.18); }
+      button:active { transform: translateY(0px); }
+      button.secondary {
+        background: transparent;
+        color: var(--primary-ink);
+        border-color: rgba(14, 165, 233, 0.55);
+      }
+      button.secondary:hover {
+        background: rgba(14, 165, 233, 0.08);
+        box-shadow: 0 10px 25px rgba(14, 165, 233, 0.12);
+      }
+
+      .row { display: flex; gap: 10px; align-items: center; }
+      .muted { color: var(--muted); font-size: 12px; }
+      .section-title { font-size: 14px; font-weight: 900; margin-top: 0; margin-bottom: 10px; letter-spacing: -0.01em; }
+
+      #authArea .section-title {
+        background: linear-gradient(90deg, rgba(14, 165, 233, 0.20), rgba(99, 102, 241, 0.15));
+        padding: 8px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(14, 165, 233, 0.25);
+      }
+
+      #mainArea .card .section-title {
+        background: linear-gradient(90deg, rgba(14, 165, 233, 0.14), rgba(99, 102, 241, 0.10));
+        padding: 8px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(14, 165, 233, 0.18);
+        margin: -6px -6px 12px;
+      }
+
+      #mainArea .card .muted { margin-top: -2px; }
+
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; border-radius: 12px; overflow: hidden; }
+      th, td { border-bottom: 1px solid rgba(15, 23, 42, 0.08); padding: 10px 8px; text-align: left; font-size: 13px; }
+      thead th { background: rgba(14, 165, 233, 0.10); color: var(--primary-ink); font-weight: 800; }
+      table tbody td { background: rgba(255, 255, 255, 0.55); }
+      tbody tr:nth-child(even) td { background: rgba(99, 102, 241, 0.035); }
+      tbody tr.clickable:hover td { background: rgba(14, 165, 233, 0.12); }
+      tr.clickable { cursor: pointer; }
+
+      .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; color: #fff; font-size: 12px; font-weight: 750; }
+      .pill.ok { background: var(--ok); }
+      .pill.fail { background: var(--fail); }
+      .pill.run { background: var(--run); }
+      .pill { box-shadow: 0 10px 25px rgba(2, 6, 23, 0.10); }
+
+      .err { margin-top: 10px; color: var(--fail); font-size: 13px; font-weight: 600; }
+      .ok { margin-top: 10px; color: var(--ok); font-size: 13px; font-weight: 650; }
+
+      #authMsg {
+        border: 1px solid rgba(220, 38, 38, 0.20);
+        background: rgba(220, 38, 38, 0.08);
+        padding: 10px 12px;
+        border-radius: 12px;
+      }
+
+      @media (max-width: 900px) {
+        .grid { grid-template-columns: 1fr; }
+        body { padding: 20px 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Tournament Data Visualisation Tool</h1>
+
+      <div id="authArea" class="card">
+        <div class="section-title">Authentication</div>
+        <div class="row">
+          <button id="tabLogin" class="secondary">Login</button>
+          <button id="tabRegister">Register</button>
+        </div>
+
+        <div id="authModeRegister" style="display:none; margin-top: 12px;">
+          <label>Username</label>
+          <input id="regUsername" placeholder="e.g. alice" />
+          <label>Email</label>
+          <input id="regEmail" placeholder="e.g. alice@example.com" />
+          <label>Password</label>
+          <input id="regPassword" type="password" placeholder="password" />
+          <div class="row" style="margin-top: 12px;">
+            <button id="btnRegister">Create account</button>
+          </div>
+        </div>
+
+        <div id="authModeLogin" style="margin-top: 12px;">
+          <label>Username or Email</label>
+          <input id="loginUsernameOrEmail" placeholder="e.g. alice" />
+          <label>Password</label>
+          <input id="loginPassword" type="password" placeholder="password" />
+          <div class="row" style="margin-top: 12px;">
+            <button id="btnLogin">Login</button>
+          </div>
+        </div>
+
+        <div id="authMsg" class="err" style="display:none;"></div>
+      </div>
+
+      <div id="mainArea" class="grid" style="display:none; margin-top: 16px;">
+        <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end; margin-bottom: 8px;">
+          <button id="btnLogout" type="button">Logout</button>
+        </div>
+
+        <div class="card">
+          <div class="section-title">Event Group Management</div>
+
+          <label>Your groups</label>
+          <select id="eventGroupSelect" style="width: 100%;">
+            <option value="">-- create/select an event group --</option>
+          </select>
+
+          <label>Create a new group</label>
+          <div class="row">
+            <input id="newGroupName" style="flex: 1;" placeholder="e.g. League Night" />
+            <button id="btnCreateGroup">Create</button>
+          </div>
+
+          <label>Link a Start.gg tournament (fixture ids supported)</label>
+          <input id="tournamentLink" placeholder="Examples: spring-smash-2026 or winter-tech-2026 or any slug" style="width:100%" />
+          <div class="row" style="margin-top: 10px;">
+            <button id="btnLinkTournament">Import</button>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <div class="section-title" style="margin-bottom: 8px;">Import jobs</div>
+            <div id="importsList" class="muted">No imports yet.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-title">Rankings & Win/Loss Matrix</div>
+          <div class="row" style="justify-content: space-between;">
+            <div class="muted">Click a player row to view matrix vs them.</div>
+            <button id="btnDownloadCsv" class="secondary">Download CSV</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Player</th>
+                <th>Elo</th>
+                <th>W-L</th>
+              </tr>
+            </thead>
+            <tbody id="rankingsTbody">
+              <tr><td colspan="4" class="muted">Import tournaments to compute Elo.</td></tr>
+            </tbody>
+          </table>
+
+          <div style="margin-top: 12px;">
+            <div class="section-title" style="margin-bottom: 8px;">Matrix vs <span id="matrixTitle">—</span></div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Opponent</th>
+                  <th>Wins</th>
+                  <th>Losses</th>
+                </tr>
+              </thead>
+              <tbody id="matrixTbody">
+                <tr><td colspan="3" class="muted">No matrix available yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE = "http://localhost:8080";
+      const TOKEN_KEY = "token";
+
+      function token() { return localStorage.getItem(TOKEN_KEY) || ""; }
+      function setToken(t) { if (!t) localStorage.removeItem(TOKEN_KEY); else localStorage.setItem(TOKEN_KEY, t); }
+
+      async function api(path, { method="GET", body=null } = {}) {
+        const headers = { "Content-Type": "application/json" };
+        if (token()) headers["Authorization"] = `Bearer ${token()}`;
+        const res = await fetch(API_BASE + path, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+        try { return JSON.parse(text); } catch { return text; }
+      }
+
+      function showErr(msg) {
+        const el = document.getElementById("authMsg");
+        el.style.display = "block";
+        el.textContent = msg;
+      }
+
+      function clearErr() {
+        const el = document.getElementById("authMsg");
+        el.style.display = "none";
+        el.textContent = "";
+      }
+
+      // Auth UI
+      const tabLogin = document.getElementById("tabLogin");
+      const tabRegister = document.getElementById("tabRegister");
+      const authModeLogin = document.getElementById("authModeLogin");
+      const authModeRegister = document.getElementById("authModeRegister");
+
+      tabLogin.addEventListener("click", () => {
+        // Primary (blue) button indicates the active mode.
+        tabLogin.classList.remove("secondary");
+        tabRegister.classList.add("secondary");
+        authModeLogin.style.display = "block";
+        authModeRegister.style.display = "none";
+      });
+
+      tabRegister.addEventListener("click", () => {
+        tabRegister.classList.remove("secondary");
+        tabLogin.classList.add("secondary");
+        authModeRegister.style.display = "block";
+        authModeLogin.style.display = "none";
+      });
+
+      // Default to Login selected (blue). Do it directly to avoid timing/caching issues.
+      tabLogin.classList.remove("secondary");
+      tabRegister.classList.add("secondary");
+      authModeLogin.style.display = "block";
+      authModeRegister.style.display = "none";
+
+      document.getElementById("btnRegister").addEventListener("click", async () => {
+        clearErr();
+        try {
+          const body = {
+            username: document.getElementById("regUsername").value,
+            email: document.getElementById("regEmail").value,
+            password: document.getElementById("regPassword").value
+          };
+          const res = await api("/api/auth/register", { method: "POST", body });
+          setToken(res.token);
+          enterApp();
+        } catch (e) {
+          showErr(e.message);
+        }
+      });
+
+      document.getElementById("btnLogin").addEventListener("click", async () => {
+        clearErr();
+        try {
+          const body = {
+            usernameOrEmail: document.getElementById("loginUsernameOrEmail").value,
+            password: document.getElementById("loginPassword").value
+          };
+          const res = await api("/api/auth/login", { method: "POST", body });
+          setToken(res.token);
+          enterApp();
+        } catch (e) {
+          showErr(e.message);
+        }
+      });
+
+      // Main app
+      let currentGroupId = "";
+      let currentMatrixPlayerRef = "";
+      let pollHandle = null;
+      /** Prevents stacked polls (async setInterval → many in-flight fetches → tab “still loading”). */
+      let pollBusy = false;
+
+      function resetMainUI() {
+        currentGroupId = "";
+        currentMatrixPlayerRef = "";
+        document.getElementById("importsList").textContent = "No imports yet.";
+        document.getElementById("rankingsTbody").innerHTML =
+          '<tr><td colspan="4" class="muted">Import tournaments to compute Elo.</td></tr>';
+        document.getElementById("matrixTitle").textContent = "—";
+        document.getElementById("matrixTbody").innerHTML =
+          '<tr><td colspan="3" class="muted">No matrix available yet.</td></tr>';
+        document.getElementById("eventGroupSelect").value = "";
+      }
+
+      document.getElementById("btnLogout").addEventListener("click", () => {
+        // Stop polling and clear token.
+        if (pollHandle) clearInterval(pollHandle);
+        pollHandle = null;
+        pollBusy = false;
+
+        localStorage.removeItem(TOKEN_KEY);
+        resetMainUI();
+
+        document.getElementById("mainArea").style.display = "none";
+        document.getElementById("authArea").style.display = "block";
+      });
+
+      async function loadMyGroups() {
+        const groups = await api("/api/event-groups");
+        const sel = document.getElementById("eventGroupSelect");
+        sel.innerHTML = '<option value="">-- create/select an event group --</option>';
+        for (const g of groups) {
+          const opt = document.createElement("option");
+          opt.value = String(g.id);
+          opt.textContent = `${g.name} (rev ${g.statisticsRevision})`;
+          sel.appendChild(opt);
+        }
+        if (groups.length > 0) {
+          sel.value = String(groups[0].id);
+          currentGroupId = sel.value;
+        }
+      }
+
+      async function loadImports() {
+        if (!currentGroupId) return [];
+        const imports = await api(`/api/internal-event-groups/${currentGroupId}/imports`);
+        const el = document.getElementById("importsList");
+        if (!imports || imports.length === 0) {
+          el.textContent = "No imports yet.";
+          return [];
+        }
+        el.innerHTML = "";
+        const latest = imports.slice(0, 5);
+        latest.forEach(j => {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.style.justifyContent = "space-between";
+          row.style.marginBottom = "8px";
+
+          const left = document.createElement("div");
+          left.innerHTML = `<div style="font-size:13px;font-weight:700;">${j.tournamentRef}</div>
+                             <div class="muted">${new Date(j.createdAt).toLocaleString()}</div>
+                             ${j.failureReason ? `<div style="color:#b00;font-size:12px;">${j.failureReason}</div>` : ""}`;
+
+          const pill = document.createElement("span");
+          let klass = "run";
+          if (j.status === "COMPLETED") klass = "ok";
+          if (j.status === "FAILED") klass = "fail";
+          pill.className = `pill ${klass}`;
+          pill.textContent = j.status;
+
+          row.appendChild(left);
+          row.appendChild(pill);
+          el.appendChild(row);
+        });
+        return imports;
+      }
+
+      async function loadRankings() {
+        if (!currentGroupId) return;
+        const rankings = await api(`/api/ratings/event-groups/${currentGroupId}/rankings`);
+        const tbody = document.getElementById("rankingsTbody");
+        if (!rankings || rankings.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="muted">Import tournaments to compute Elo.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = "";
+        rankings.forEach((r, idx) => {
+          const tr = document.createElement("tr");
+          tr.className = "clickable";
+          tr.innerHTML = `
+            <td>${idx + 1}</td>
+            <td style="font-weight:${r.playerRef === currentMatrixPlayerRef ? "700" : "400"};">${r.displayName}</td>
+            <td>${Number(r.elo).toFixed(2)}</td>
+            <td>${r.wins}-${r.losses}</td>
+          `;
+          tr.addEventListener("click", () => {
+            currentMatrixPlayerRef = r.playerRef;
+            loadMatrix();
+          });
+          tbody.appendChild(tr);
+        });
+        if (!currentMatrixPlayerRef) {
+          currentMatrixPlayerRef = rankings[0].playerRef;
+          loadMatrix();
+        }
+      }
+
+      async function loadMatrix() {
+        if (!currentGroupId || !currentMatrixPlayerRef) return;
+        const title = document.getElementById("matrixTitle");
+        title.textContent = currentMatrixPlayerRef;
+
+        const matrix = await api(`/api/ratings/event-groups/${currentGroupId}/winloss-matrix?playerRef=${encodeURIComponent(currentMatrixPlayerRef)}`);
+        const tbody = document.getElementById("matrixTbody");
+        tbody.innerHTML = "";
+        if (!matrix || matrix.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" class="muted">No matrix available yet.</td></tr>';
+          return;
+        }
+        matrix.forEach(m => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${m.opponentName}</td><td>${m.wins}</td><td>${m.losses}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      document.getElementById("eventGroupSelect").addEventListener("change", async (e) => {
+        currentGroupId = e.target.value;
+        currentMatrixPlayerRef = "";
+        await loadImports();
+        await loadRankings();
+      });
+
+      document.getElementById("btnCreateGroup").addEventListener("click", async () => {
+        const name = document.getElementById("newGroupName").value;
+        const res = await api("/api/event-groups", { method: "POST", body: { name } });
+        document.getElementById("newGroupName").value = "";
+        await loadMyGroups();
+        document.getElementById("eventGroupSelect").value = String(res.id);
+        currentGroupId = String(res.id);
+        currentMatrixPlayerRef = "";
+        await loadImports();
+        await loadRankings();
+      });
+
+      document.getElementById("btnLinkTournament").addEventListener("click", async () => {
+        const link = document.getElementById("tournamentLink").value;
+        await api(`/api/internal-event-groups/${currentGroupId}/tournaments`, {
+          method: "POST",
+          body: { startggLink: link }
+        });
+        await loadImports();
+      });
+
+      document.getElementById("btnDownloadCsv").addEventListener("click", async () => {
+        if (!currentGroupId) return;
+        // direct fetch because backend returns text/csv
+        const res = await fetch(`${API_BASE}/api/ratings/event-groups/${currentGroupId}/export/csv`, {
+          headers: { "Authorization": `Bearer ${token()}` }
+        });
+        const text = await res.text();
+        const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `event-group-${currentGroupId}-rankings.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+
+      async function enterApp() {
+        document.getElementById("authArea").style.display = "none";
+        document.getElementById("mainArea").style.display = "grid";
+        await loadMyGroups();
+        const sel = document.getElementById("eventGroupSelect");
+        if (sel.value) {
+          currentGroupId = sel.value;
+          currentMatrixPlayerRef = "";
+          await loadImports();
+          await loadRankings();
+        }
+        // Poll imports/rankings. Use a mutex so async callbacks never stack (avoids endless tab loading).
+        if (pollHandle) clearInterval(pollHandle);
+        pollHandle = setInterval(async () => {
+          if (!currentGroupId || pollBusy) return;
+          pollBusy = true;
+          try {
+            await loadImports();
+            await loadRankings();
+          } catch (e) {
+            console.error(e);
+          } finally {
+            pollBusy = false;
+          }
+        }, 4000);
+      }
+
+      // boot
+      if (token()) enterApp();
+    </script>
+  </body>
+</html>
+
