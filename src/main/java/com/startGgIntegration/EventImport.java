@@ -2,10 +2,9 @@ package com.startGgIntegration;
 
 import com.startGgIntegration.systemEvents.EventImported;
 import com.startGgIntegration.systemEvents.ImportFailure;
-import com.shared.entities.ImportedMatch;
-import com.shared.valueObjects.StartGgId;
-import com.startGgIntegration.valueObjects.StartGgURL;
-import com.startGgIntegration.valueObjects.ImportStatus;
+import com.shared.entities.*;
+import com.shared.valueObjects.*;
+import com.startGgIntegration.valueObjects.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +12,7 @@ import java.util.List;
 public class EventImport {
 
     private int eventImportId;
-    private StartGgUrl startGgUrl;
+    private StartGgURL StartGgURL;
     private ImportStatus status;
     private EventGroupId eventGroupId;
     private List<ImportedMatch> matches = new ArrayList<>();
@@ -24,7 +23,7 @@ public class EventImport {
     // Factory method — matches createEvent() on the diagram
     public static EventImport createEvent(String url, int eventGroupId) {
         EventImport ei = new EventImport();
-        ei.startGgUrl  = new StartGgUrl(url);
+        ei.StartGgURL  = new StartGgURL(url);
         ei.eventGroupId = new EventGroupId(eventGroupId);
         ei.status = ImportStatus.PENDING;
         return ei;
@@ -34,10 +33,10 @@ public class EventImport {
         this.status = ImportStatus.IN_PROGRESS;
     }
 
-    public void status_complete(List<ImportedMatch> matches) {
+    public void status_complete(List<ImportedMatch> matches, List<Player> players, StartGgEvent event) {
         this.matches = new ArrayList<>(matches);
         this.status = ImportStatus.COMPLETE;
-        domainEvents.add(new EventImported(eventImportId, eventGroupId.value(), this.matches));
+        domainEvents.add(new EventImported(eventImportId, eventGroupId.value(), this.matches, players, event));
     }
 
     public void status_fail(String reason) {
@@ -48,7 +47,7 @@ public class EventImport {
     // Getters
     public int getEventImportId()        { return eventImportId; }
     public void setEventImportId(int id) { this.eventImportId = id; }
-    public StartGgUrl getStartGgUrl()    { return startGgUrl; }
+    public StartGgURL getStartGgURL()    { return StartGgURL; }
     public ImportStatus getStatus()      { return status; }
     public EventGroupId getEventGroupId(){ return eventGroupId; }
     public List<ImportedMatch> getMatches() { return matches; }

@@ -7,10 +7,10 @@ public class Player {
         this.tag = tag;
         this.globalStartGgId = globalStartGgId;
     }
-    String getTag(){
+    public String getTag(){
         return this.tag;
     }
-    int getGlobalStartGgId(){
+    public int getGlobalStartGgId(){
         return this.globalStartGgId;
     }
 }

@@ -2,10 +2,6 @@ package com.startGgIntegration;
 
 
 import com.shared.entities.*;
-import com.shared.valueObjects.*;
-
-import ch.qos.logback.core.spi.ConfigurationEvent.EventType;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,7 +24,9 @@ public class StartGgApiHandler {
     private final ObjectMapper mapper = new ObjectMapper();
     private final EventImportRepo repo;
     
-    private static final int SETS_PERPAGECOUNT = 200;
+    
+    private static final int ENTRANTS_PERPAGECOUNT = 499;
+    private static final int SETS_PERPAGECOUNT = 249;
     private enum RequestType{
         EVENTINFO,
         ENTRANTS,
@@ -78,6 +76,9 @@ public class StartGgApiHandler {
                             query getEventEntrants($slug: String, $page: Int, $perPage: Int) {
                             event(slug: $slug) {
                                 entrants(query: { page: $page, perPage: $perPage }) {
+                                pageInfo{
+                                    totalPages
+                                }
                                 nodes {
                                     name
                                     id
@@ -155,20 +156,39 @@ public class StartGgApiHandler {
         try {
             String slug = formatUrl_toSlug(url);
             String eventInfo_JSON = makeStartGgRequest(slug, RequestType.EVENTINFO,0,0);
-            String eventEntrants_JSON = makeStartGgRequest(slug, RequestType.ENTRANTS,1,50);
 
+            //get the first page - if there are more pages, then follow-up requests will be needed.
+            //This is necessary because of rate limits with start gg's API
             String pageOneSets_JSON = makeStartGgRequest(slug, RequestType.SETS,1,SETS_PERPAGECOUNT);
-            int totalPages = parseTotalPages(pageOneSets_JSON);
-            List<ImportedMatch> matches = new ArrayList<>(parseMatches(pageOneSets_JSON));
-            for (int page = 2; page <= totalPages; page++) {
-                String perPage_JSON = makeStartGgRequest(slug, RequestType.SETS, page, SETS_PERPAGECOUNT);
-                matches.addAll(parseMatches(perPage_JSON));
-            }
+            int totalPages_sets = parseTotalPages(pageOneSets_JSON, "sets");
+
+            String pageOneEntrants_JSON = makeStartGgRequest(slug, RequestType.ENTRANTS,1,ENTRANTS_PERPAGECOUNT);
+            int totalPages_entrants = parseTotalPages(pageOneEntrants_JSON, "entrants");
 
             StartGgEvent myEvent = parseEvent(eventInfo_JSON);
-            List<Entrant> entrants = parseEntrants(eventEntrants_JSON);
+            List<Entrant> entrants = parseEntrants(pageOneEntrants_JSON);
+            for (int page = 2; page <= totalPages_entrants; page++) {
+                String perPage_JSON = makeStartGgRequest(slug, RequestType.ENTRANTS, page, ENTRANTS_PERPAGECOUNT);
+                entrants.addAll(parseEntrants(perPage_JSON));
+            }
 
-            eventImport.status_complete(matches);
+
+            // Build a way to lookup entrantId -> globalUserId
+            Map<Integer, Integer> entrantToGlobal = new HashMap<>();
+            List<Player> players = new ArrayList<>();
+            for (Entrant e : entrants) {
+                entrantToGlobal.put(e.getEntrantId(), e.getGlobalId());
+                players.add(new Player(e.getName(), e.getGlobalId()));
+            }
+
+            // Now pass the map into every parseMatches call
+            List<ImportedMatch> matches = new ArrayList<>(parseMatches(pageOneSets_JSON, entrantToGlobal));
+            for (int page = 2; page <= totalPages_sets; page++) {
+                String perPage_JSON = makeStartGgRequest(slug, RequestType.SETS, page, SETS_PERPAGECOUNT);
+                matches.addAll(parseMatches(perPage_JSON, entrantToGlobal));
+            }
+
+            eventImport.status_complete(matches, players, myEvent);
             repo.save(eventImport);
 
             return "Import complete for "+myEvent.getTournamentName()+ ": "+ myEvent.getEventName()+"... has" + matches.size() + " matches among " + entrants.size()+ "entrants";
@@ -180,15 +200,15 @@ public class StartGgApiHandler {
         }
     }
 
-    private int parseTotalPages(String json) throws Exception {
-    return mapper.readTree(json)
-        .path("data")
-        .path("event")
-        .path("sets")
-        .path("pageInfo")
-        .path("totalPages")
-        .asInt();
-}
+    private int parseTotalPages(String json, String collectionName) throws Exception {
+        return mapper.readTree(json)
+            .path("data")
+            .path("event")
+            .path(collectionName)
+            .path("pageInfo")
+            .path("totalPages")
+            .asInt();
+    }
 
     private StartGgEvent parseEvent(String json) throws Exception{
         JsonNode root = mapper.readTree(json);
@@ -224,31 +244,36 @@ public class StartGgApiHandler {
         }
         return entrants;
     }
-    private List<ImportedMatch> parseMatches(String json) throws Exception {
-    JsonNode nodes = mapper.readTree(json)
-        .path("data")
-        .path("event")
-        .path("sets")
-        .path("nodes");
+    private List<ImportedMatch> parseMatches(String json, Map<Integer, Integer> entrantToGlobal) throws Exception {
+        JsonNode nodes = mapper.readTree(json)
+            .path("data")
+            .path("event")
+            .path("sets")
+            .path("nodes");
 
-    List<ImportedMatch> matches = new ArrayList<>();
-    for (JsonNode node : nodes) {
-        int winnerId = node.path("winnerId").asInt();
+        List<ImportedMatch> matches = new ArrayList<>();
+        for (JsonNode node : nodes) {
+            int winnerEntrantId = node.path("winnerId").asInt();
 
-        JsonNode slots = node.path("slots");
-        int loserId = -1;
-        for (JsonNode slot : slots) {
-            int entrantId = slot.path("entrant").path("id").asInt();
-            if (entrantId != winnerId) {
-                loserId = entrantId;
-                break;
+            JsonNode slots = node.path("slots");
+            int loserEntrantId = -1;
+            for (JsonNode slot : slots) {
+                int entrantId = slot.path("entrant").path("id").asInt();
+                if (entrantId != winnerEntrantId) {
+                    loserEntrantId = entrantId;
+                    break;
+                }
             }
+
+            if (loserEntrantId == -1) continue;
+
+            int winnerId = entrantToGlobal.getOrDefault(winnerEntrantId, -1);
+            int loserId = entrantToGlobal.getOrDefault(loserEntrantId, -1);
+
+            if (winnerId == -1 || loserId == -1) continue; // skip if entrant not found
+
+            matches.add(new ImportedMatch(winnerId, loserId));
         }
-
-        if (loserId == -1) continue;
-
-        matches.add(new ImportedMatch(winnerId, loserId));
+        return matches;
     }
-    return matches;
-}
 }
