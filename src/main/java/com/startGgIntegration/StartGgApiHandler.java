@@ -28,6 +28,7 @@ public class StartGgApiHandler {
     private final ObjectMapper mapper = new ObjectMapper();
     private final EventImportRepo repo;
     
+    private static final int SETS_PERPAGECOUNT = 200;
     private enum RequestType{
         EVENTINFO,
         ENTRANTS,
@@ -46,7 +47,7 @@ public class StartGgApiHandler {
     }
 
     // Make a GraphQL request and return the JSON
-    public String makeStarttGgRequest(String slug, RequestType requesting, int pagenum, int perPage) {
+    public String makeStartGgRequest(String slug, RequestType requesting, int pagenum, int perPage) {
         try {
             String query;
             String body;
@@ -100,6 +101,9 @@ public class StartGgApiHandler {
                             query getEventSets($slug: String, $page: Int, $perPage: Int) {
                             event(slug: $slug) {
                                 sets(page: $page, perPage: $perPage) {
+                                pageInfo {
+                                    totalPages
+                                }
                                 nodes {
                                     winnerId
                                     slots {
@@ -150,18 +154,24 @@ public class StartGgApiHandler {
 
         try {
             String slug = formatUrl_toSlug(url);
-            String eventInfo_JSON = makeStarttGgRequest(slug, RequestType.EVENTINFO,0,0);
-            String eventEntrants_JSON = makeStarttGgRequest(slug, RequestType.ENTRANTS,1,50);
-            String eventMatches_JSON = makeStarttGgRequest(slug, RequestType.SETS,1,999);
-            
+            String eventInfo_JSON = makeStartGgRequest(slug, RequestType.EVENTINFO,0,0);
+            String eventEntrants_JSON = makeStartGgRequest(slug, RequestType.ENTRANTS,1,50);
+
+            String pageOneSets_JSON = makeStartGgRequest(slug, RequestType.SETS,1,SETS_PERPAGECOUNT);
+            int totalPages = parseTotalPages(pageOneSets_JSON);
+            List<ImportedMatch> matches = new ArrayList<>(parseMatches(pageOneSets_JSON));
+            for (int page = 2; page <= totalPages; page++) {
+                String perPage_JSON = makeStartGgRequest(slug, RequestType.SETS, page, SETS_PERPAGECOUNT);
+                matches.addAll(parseMatches(perPage_JSON));
+            }
+
             StartGgEvent myEvent = parseEvent(eventInfo_JSON);
             List<Entrant> entrants = parseEntrants(eventEntrants_JSON);
-            List<ImportedMatch> matches = parseMatches(eventMatches_JSON);
 
             eventImport.status_complete(matches);
             repo.save(eventImport);
 
-            return "Import complete: " + matches.size() + " matches";
+            return "Import complete for "+myEvent.getTournamentName()+ ": "+ myEvent.getEventName()+"... has" + matches.size() + " matches among " + entrants.size()+ "entrants";
 
         } catch (Exception e) {
             eventImport.status_fail(e.getMessage());
@@ -169,6 +179,16 @@ public class StartGgApiHandler {
             return "Import failed: " + e.getMessage();
         }
     }
+
+    private int parseTotalPages(String json) throws Exception {
+    return mapper.readTree(json)
+        .path("data")
+        .path("event")
+        .path("sets")
+        .path("pageInfo")
+        .path("totalPages")
+        .asInt();
+}
 
     private StartGgEvent parseEvent(String json) throws Exception{
         JsonNode root = mapper.readTree(json);
