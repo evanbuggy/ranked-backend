@@ -1,16 +1,15 @@
 package com.shared.entities;
 
-import com.shared.valueObjects.StartGgId;
 
 public class ImportedMatch {
-    private final StartGgId winnerId;
-    private final StartGgId loserId;
+    private final int winnerId;
+    private final int loserId;
 
-    public ImportedMatch(StartGgId winnerId, StartGgId loserId) {
+    public ImportedMatch(int winnerId, int loserId) {
         this.winnerId = winnerId;
         this.loserId = loserId;
     }
 
-    public StartGgId winnerId() { return winnerId; }
-    public StartGgId loserId()  { return loserId; }
+    public int winnerId() { return winnerId; }
+    public int loserId()  { return loserId; }
 }

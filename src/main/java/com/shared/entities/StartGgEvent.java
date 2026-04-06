@@ -1,0 +1,23 @@
+package com.shared.entities;
+
+public class StartGgEvent {
+    String tournamentName;
+    int tournamentId;
+    String eventName;
+    int eventId;
+    long eventDate;
+
+    public StartGgEvent(String tournamentName, int tournamentId, String eventName, int eventId, long eventDate) {
+        this.tournamentName = tournamentName;
+        this.tournamentId = tournamentId;
+        this.eventName = eventName;
+        this.eventId = eventId;
+        this.eventDate = eventDate;
+    }
+
+    public String getTournamentName() { return tournamentName; }
+    public int getTournamentId() { return tournamentId; }
+    public String getEventName() { return eventName; }
+    public int getEventId() { return eventId; }
+    public long getEventDate() { return eventDate; }
+}

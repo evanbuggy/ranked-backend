@@ -1,0 +1,234 @@
+package com.startGgIntegration;
+
+
+import com.shared.entities.*;
+import com.shared.valueObjects.*;
+
+import ch.qos.logback.core.spi.ConfigurationEvent.EventType;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.net.URI;
+import java.net.http.*;
+import java.util.*;
+import com.startGgIntegration.entities.*;
+
+
+@Service
+public class StartGgApiHandler {
+
+    @Value("${startgg.api-key}")
+    private String apiKey;
+
+    private static final String API_URL = "https://api.start.gg/gql/alpha";
+    private final HttpClient http = HttpClient.newHttpClient();
+    private final ObjectMapper mapper = new ObjectMapper();
+    private final EventImportRepo repo;
+    
+    private enum RequestType{
+        EVENTINFO,
+        ENTRANTS,
+        SETS
+    }
+
+    public StartGgApiHandler(EventImportRepo repo) {
+        this.repo = repo;
+    }
+
+    // Converts URL to start gg 'slug'  e.g. "https://start.gg/tournament/my-tournament/event/my-event" will give back "tournament/my-tournament/event/my-event"
+    public String formatUrl_toSlug(String url) {
+        if (url == null) return ""; // url should not be null
+        var m = java.util.regex.Pattern.compile("(tournament/[^/?#]+/event/[^/?#]+)").matcher(url); // This is the pattern being used - [^/?#] means that it cannot contain the special characters /, ? or #.
+        return m.find() ? m.group(1) : ""; // return only the segment we want, if the segment is missing then return an empty string to signify failure
+    }
+
+    // Make a GraphQL request and return the JSON
+    public String makeStarttGgRequest(String slug, RequestType requesting, int pagenum, int perPage) {
+        try {
+            String query;
+            String body;
+            switch(requesting){
+                case EVENTINFO:
+                    query = """
+                            query getEventInfo($slug: String){
+                                event(slug:$slug){
+                                    id
+                                    name
+                                    videogame{id,displayName}
+                                    numEntrants
+                                    startAt
+                                    tournament{
+                                        name
+                                        id
+                                    }
+                                }
+                            }
+                            """;
+                    body = mapper.writeValueAsString(Map.of(
+                    "query", query,
+                    "variables", Map.of("slug", slug)
+                    ));
+                    break;
+                case ENTRANTS:
+                    query = """
+                            query getEventEntrants($slug: String, $page: Int, $perPage: Int) {
+                            event(slug: $slug) {
+                                entrants(query: { page: $page, perPage: $perPage }) {
+                                nodes {
+                                    name
+                                    id
+                                    participants {
+                                    user {
+                                        id
+                                    }
+                                    }
+                                }
+                                }
+                            }
+                            }
+                            """;
+                    body = mapper.writeValueAsString(Map.of(
+                        "query", query,
+                        "variables", Map.of("slug", slug, "page", pagenum, "perPage", perPage)
+                    ));
+                    break;
+                case SETS:
+                    query = """
+                            query getEventSets($slug: String, $page: Int, $perPage: Int) {
+                            event(slug: $slug) {
+                                sets(page: $page, perPage: $perPage) {
+                                nodes {
+                                    winnerId
+                                    slots {
+                                    entrant {
+                                        id
+                                        name
+                                    }
+                                    }
+                                }
+                                }
+                            }
+                            }
+                            """;
+                    body = mapper.writeValueAsString(Map.of(
+                        "query", query,
+                        "variables", Map.of("slug", slug, "page", pagenum, "perPage", perPage)
+                    ));
+                break;
+                default:
+                    throw new IllegalArgumentException("invalid request type");
+            }
+
+            var request = HttpRequest.newBuilder()
+                .uri(URI.create(API_URL))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+            var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200)
+                throw new RuntimeException("API error: " + response.statusCode());
+
+            return response.body();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Start.gg request failed: " + e.getMessage(), e);
+        }
+    }
+
+    // Import orchestrator. Creates aggregate, calls API, updates status
+    public String importEvent(String url, int eventGroupId) {
+        EventImport eventImport = EventImport.createEvent(url, eventGroupId);
+        repo.save(eventImport);
+
+        eventImport.status_inprogress();
+        repo.save(eventImport);
+
+        try {
+            String slug = formatUrl_toSlug(url);
+            String eventInfo_JSON = makeStarttGgRequest(slug, RequestType.EVENTINFO,0,0);
+            String eventEntrants_JSON = makeStarttGgRequest(slug, RequestType.ENTRANTS,1,50);
+            String eventMatches_JSON = makeStarttGgRequest(slug, RequestType.SETS,1,999);
+            
+            StartGgEvent myEvent = parseEvent(eventInfo_JSON);
+            List<Entrant> entrants = parseEntrants(eventEntrants_JSON);
+            List<ImportedMatch> matches = parseMatches(eventMatches_JSON);
+
+            eventImport.status_complete(matches);
+            repo.save(eventImport);
+
+            return "Import complete: " + matches.size() + " matches";
+
+        } catch (Exception e) {
+            eventImport.status_fail(e.getMessage());
+            repo.save(eventImport);
+            return "Import failed: " + e.getMessage();
+        }
+    }
+
+    private StartGgEvent parseEvent(String json) throws Exception{
+        JsonNode root = mapper.readTree(json);
+        JsonNode event = root.path("data").path("event");
+        JsonNode tournament = event.path("tournament");
+
+        return new StartGgEvent(
+            tournament.path("name").asText(),
+            tournament.path("id").asInt(),
+            event.path("name").asText(),
+            event.path("id").asInt(),
+            event.path("startAt").asLong()
+        );
+    }
+    private List<Entrant> parseEntrants(String json) throws Exception{
+        JsonNode nodes = mapper.readTree(json)
+        .path("data")
+        .path("event")
+        .path("entrants")
+        .path("nodes");
+
+        List<Entrant> entrants = new ArrayList<>();
+        for (JsonNode node : nodes) {
+            String name = node.path("name").asText();
+            int entrantId = node.path("id").asInt();
+            int globalUserId = node.path("participants")
+                .path(0)
+                .path("user")
+                .path("id")
+                .asInt();
+
+            entrants.add(new Entrant(name, entrantId, globalUserId));
+        }
+        return entrants;
+    }
+    private List<ImportedMatch> parseMatches(String json) throws Exception {
+    JsonNode nodes = mapper.readTree(json)
+        .path("data")
+        .path("event")
+        .path("sets")
+        .path("nodes");
+
+    List<ImportedMatch> matches = new ArrayList<>();
+    for (JsonNode node : nodes) {
+        int winnerId = node.path("winnerId").asInt();
+
+        JsonNode slots = node.path("slots");
+        int loserId = -1;
+        for (JsonNode slot : slots) {
+            int entrantId = slot.path("entrant").path("id").asInt();
+            if (entrantId != winnerId) {
+                loserId = entrantId;
+                break;
+            }
+        }
+
+        if (loserId == -1) continue;
+
+        matches.add(new ImportedMatch(winnerId, loserId));
+    }
+    return matches;
+}
+}
