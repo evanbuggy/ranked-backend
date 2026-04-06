@@ -11,7 +11,7 @@ import java.net.URI;
 import java.net.http.*;
 import java.util.*;
 import com.startGgIntegration.entities.*;
-
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 
 @Service
 public class StartGgApiHandler {
@@ -45,6 +45,7 @@ public class StartGgApiHandler {
     }
 
     // Make a GraphQL request and return the JSON
+    @CircuitBreaker(name = "startgg", fallbackMethod = "fallbackRequest")
     public String makeStartGgRequest(String slug, RequestType requesting, int pagenum, int perPage) {
         try {
             String query;
@@ -144,6 +145,10 @@ public class StartGgApiHandler {
             throw new RuntimeException("Start.gg request failed: " + e.getMessage(), e);
         }
     }
+    public String fallbackRequest(String slug, RequestType type, int page, int perPage, Exception e) {
+        throw new RuntimeException("Start.gg API unavailable: circuit open");
+    }
+
 
     // Import orchestrator. Creates aggregate, calls API, updates status
     public String importEvent(String url, int eventGroupId) {
@@ -191,7 +196,7 @@ public class StartGgApiHandler {
             eventImport.status_complete(matches, players, myEvent);
             repo.save(eventImport);
 
-            return "Import complete for "+myEvent.getTournamentName()+ ": "+ myEvent.getEventName()+"... has" + matches.size() + " matches among " + entrants.size()+ "entrants";
+            return "Import complete for "+myEvent.getTournamentName()+ ": "+ myEvent.getEventName()+"... has " + matches.size() + " matches among " + entrants.size()+ " entrants";
 
         } catch (Exception e) {
             eventImport.status_fail(e.getMessage());
