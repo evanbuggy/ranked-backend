@@ -19,6 +19,13 @@ spring:
     console:
       enabled: true
 
+resilience4j:
+  ratelimiter:
+    instances:
+      startgg:
+        limit-for-period: 12
+        limit-refresh-period: 10s
+        timeout-duration: 10s
 app:
   security:
     # Demo-only key. In a production deployment this must come from a secrets manager.
