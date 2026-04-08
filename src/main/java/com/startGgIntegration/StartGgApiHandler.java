@@ -4,8 +4,12 @@
     import com.shared.entities.*;
     import com.fasterxml.jackson.databind.JsonNode;
     import com.fasterxml.jackson.databind.ObjectMapper;
-    import org.springframework.beans.factory.annotation.Value;
-    import org.springframework.stereotype.Service;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
     import java.net.URI;
     import java.net.http.*;
@@ -16,12 +20,12 @@
     import io.github.resilience4j.retry.annotation.Retry;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;    
-    import java.time.Duration;
 
     @Service
+    @Component
     public class StartGgApiHandler {
 
-        @Value("${startgg.api-key}")
+        @Value("${app.startgg.api-key}")
         private String apiKey;
 
         private static final String API_URL = "https://api.start.gg/gql/alpha";
@@ -36,10 +40,13 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
             EVENTINFO,
             ENTRANTS,
             SETS
-        }
+        }  
 
-        public StartGgApiHandler(EventImportRepo repo) {
+        
+        private final ApplicationEventPublisher eventPublisher;
+        public StartGgApiHandler(@Autowired(required = false)EventImportRepo repo, ApplicationEventPublisher eventPublisher) {
             this.repo = repo;
+            this.eventPublisher = eventPublisher;
         }
 
         // Converts URL to start gg 'slug'  e.g. "https://start.gg/tournament/my-tournament/event/my-event" will give back "tournament/my-tournament/event/my-event"
@@ -205,10 +212,11 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 
                 eventImport.status_complete(matches, players, myEvent);
                 repo.save(eventImport);
-
+                eventImport.pullDomainEvents().forEach(eventPublisher::publishEvent);
                 return "Import complete for "+myEvent.getTournamentName()+ ": "+ myEvent.getEventName()+"... has " + matches.size() + " matches among " + entrants.size()+ " entrants";
 
             } catch (Exception e) {
+                System.out.println("=== Import failed: " + e.getMessage());
                 eventImport.status_fail(e.getMessage());
                 repo.save(eventImport);
                 return "Import failed: " + e.getMessage();

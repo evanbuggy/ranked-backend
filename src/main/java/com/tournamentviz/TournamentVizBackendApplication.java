@@ -8,12 +8,14 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -62,7 +64,7 @@ import java.util.stream.Collectors;
  *
  * This keeps the codebase runnable without requiring multiple deployments or external brokers.
  */
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.tournamentviz", "com.startGgIntegration"})
 public class TournamentVizBackendApplication {
   public static void main(String[] args) {
     SpringApplication.run(TournamentVizBackendApplication.class, args);
@@ -1108,6 +1110,7 @@ interface StartggClient {
 }
 
 @Service
+@ConditionalOnProperty(name = "app.startgg.mode", havingValue = "fixture", matchIfMissing = true)
 class FixtureStartggClient implements StartggClient {
   private final Map<String, StartggTournamentData> fixtures = buildFixtures();
 
@@ -1119,7 +1122,7 @@ class FixtureStartggClient implements StartggClient {
       return genericTwoPlayerFixture(tournamentRef);
     }
     return data;
-  }
+  } 
 
   private static StartggTournamentData genericTwoPlayerFixture(String tournamentRef) {
     String a = tournamentRef + "-p1";
@@ -1185,14 +1188,16 @@ class TournamentRefExtractor {
   private static final Pattern SLUG_AFTER_TOURNAMENT = Pattern.compile("tournament/([^/?#]+)");
 
   static String normalize(String startggLink) {
+    /* 
     if (startggLink == null) return "";
     String link = startggLink.trim();
     // Common examples may end with: .../tournament/<slug>
     Matcher slug = SLUG_AFTER_TOURNAMENT.matcher(link);
     if (slug.find()) return slug.group(1);
     Matcher last = LAST_SEGMENT.matcher(link);
-    if (last.find()) return last.group(1);
-    return link; // fallback: allow passing slug directly
+    if (last.find()) return last.group(1);*/
+    return startggLink; // NOTE!! This has been changed for the purposes of handling within the startGgIntegration closed context!! 
+
   }
 }
 
@@ -1295,6 +1300,7 @@ class RatingComputationService {
     this.matchupRepository = matchupRepository;
   }
 
+  @Transactional
   void recomputeEventGroup(long eventGroupId, long newRevision, String formulaVersion) {
     // Full recompute keeps invariants simple for a proof-of-work implementation.
     // (In the full microservice version, you would do incremental updates keyed by new matches.)

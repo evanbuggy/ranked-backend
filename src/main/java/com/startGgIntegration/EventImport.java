@@ -27,6 +27,7 @@ public class EventImport {
         try{
             eventImport.startGgURL  = new StartGgURL(url);
         }catch(IllegalArgumentException e){
+            System.out.println("=== Failed to create EventImport: " + e.getMessage());
             eventImport.status_fail("Invalid Start.gg link! You must link to an event on Start.gg!");
             return eventImport;
         }

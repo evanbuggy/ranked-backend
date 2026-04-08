@@ -34,8 +34,8 @@ app:
     jwt-issuer: "tournament-viz"
     jwt-expiry-seconds: 3600
   startgg:
-    mode: fixture
+    mode: real
     # When mode=real, the following are intended for Start.gg API usage.
-    api-key: ""
+    api-key: "f07a2ce46c71c74a8ef6df213bd81499"
     base-url: "https://api.start.gg"
 
