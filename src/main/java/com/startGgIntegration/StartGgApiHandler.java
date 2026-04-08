@@ -11,6 +11,8 @@ import java.net.URI;
 import java.net.http.*;
 import java.util.*;
 import com.startGgIntegration.entities.*;
+import com.startGgIntegration.valueObjects.ImportStatus;
+
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 
 @Service
@@ -27,7 +29,7 @@ public class StartGgApiHandler {
     
     private static final int ENTRANTS_PERPAGECOUNT = 499;
     private static final int SETS_PERPAGECOUNT = 249;
-    private enum RequestType{
+    public enum RequestType{
         EVENTINFO,
         ENTRANTS,
         SETS
@@ -152,13 +154,17 @@ public class StartGgApiHandler {
 
     // Import orchestrator. Creates aggregate, calls API, updates status
     public String importEvent(String url, int eventGroupId) {
-        EventImport eventImport = EventImport.createEvent(url, eventGroupId);
-        repo.save(eventImport);
-
-        eventImport.status_inprogress();
-        repo.save(eventImport);
-
+        EventImport eventImport = null;
         try {
+            eventImport = EventImport.createEvent(url, eventGroupId);
+            if (eventImport.getStatus() == ImportStatus.FAILED){
+                throw new Exception(eventImport.getFailureCause());
+            }
+
+            repo.save(eventImport);
+            eventImport.status_inprogress();
+            repo.save(eventImport);
+
             String slug = formatUrl_toSlug(url);
             String eventInfo_JSON = makeStartGgRequest(slug, RequestType.EVENTINFO,0,0);
 
@@ -228,7 +234,7 @@ public class StartGgApiHandler {
             event.path("startAt").asLong()
         );
     }
-    private List<Entrant> parseEntrants(String json) throws Exception{
+    public List<Entrant> parseEntrants(String json) throws Exception{
         JsonNode nodes = mapper.readTree(json)
         .path("data")
         .path("event")
@@ -249,7 +255,7 @@ public class StartGgApiHandler {
         }
         return entrants;
     }
-    private List<ImportedMatch> parseMatches(String json, Map<Integer, Integer> entrantToGlobal) throws Exception {
+    public List<ImportedMatch> parseMatches(String json, Map<Integer, Integer> entrantToGlobal) throws Exception {
         JsonNode nodes = mapper.readTree(json)
             .path("data")
             .path("event")

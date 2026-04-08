@@ -12,21 +12,28 @@ import java.util.List;
 public class EventImport {
 
     private int eventImportId;
-    private StartGgURL StartGgURL;
+    private StartGgURL startGgURL;
     private ImportStatus status;
     private EventGroupId eventGroupId;
     private List<ImportedMatch> matches = new ArrayList<>();
+    private String failureCause;
 
     // Domain events to be dispatched after persistence
     private final List<Object> domainEvents = new ArrayList<>();
 
     // Factory method — matches createEvent() on the diagram
     public static EventImport createEvent(String url, int eventGroupId) {
-        EventImport ei = new EventImport();
-        ei.StartGgURL  = new StartGgURL(url);
-        ei.eventGroupId = new EventGroupId(eventGroupId);
-        ei.status = ImportStatus.PENDING;
-        return ei;
+        EventImport eventImport = new EventImport();
+        try{
+            eventImport.startGgURL  = new StartGgURL(url);
+        }catch(IllegalArgumentException e){
+            eventImport.status_fail("Invalid Start.gg link! You must link to an event on Start.gg!");
+            return eventImport;
+        }
+        
+        eventImport.eventGroupId = new EventGroupId(eventGroupId);
+        eventImport.status = ImportStatus.PENDING;
+        return eventImport;
     }
 
     public void status_inprogress() {
@@ -42,12 +49,13 @@ public class EventImport {
     public void status_fail(String reason) {
         this.status = ImportStatus.FAILED;
         domainEvents.add(new ImportFailure(eventImportId, reason));
+        this.failureCause = reason;
     }
 
     // Getters
     public int getEventImportId()        { return eventImportId; }
     public void setEventImportId(int id) { this.eventImportId = id; }
-    public StartGgURL getStartGgURL()    { return StartGgURL; }
+    public StartGgURL getStartGgURL()    { return startGgURL; }
     public ImportStatus getStatus()      { return status; }
     public EventGroupId getEventGroupId(){ return eventGroupId; }
     public List<ImportedMatch> getMatches() { return matches; }
@@ -56,4 +64,6 @@ public class EventImport {
         domainEvents.clear();
         return events;
     }
+
+    public String getFailureCause()     { return this.failureCause; }
 }
