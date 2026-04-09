@@ -1,4 +1,5 @@
     package com.startGgIntegration;
+//authored by Liam Kelly, 22346317
 
 
     import com.shared.entities.*;
@@ -163,7 +164,7 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
         }
 
 
-        // Import orchestrator. Creates aggregate, calls API, updates status
+        // Import orchestrator
         public String importEvent(String url, int eventGroupId) {
             EventImport eventImport = null;
             try {

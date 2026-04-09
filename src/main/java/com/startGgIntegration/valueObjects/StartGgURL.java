@@ -1,4 +1,5 @@
 package com.startGgIntegration.valueObjects;
+//authored by Liam Kelly, 22346317
 
 public record StartGgURL(String value) {
     private static final java.util.regex.Pattern VALID = java.util.regex.Pattern.compile("start\\.gg/tournament/[^/?#]+/event/[^/?#]+"); //note: the . needs to be escaped

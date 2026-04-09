@@ -1,8 +1,7 @@
 package com.tournamentviz;
+//authored by Liam Kelly, 22346317
 
 import com.startGgIntegration.StartGgApiHandler;
-import com.startGgIntegration.StartGgApiHandler.RequestType;
-import com.startGgIntegration.entities.Entrant;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;

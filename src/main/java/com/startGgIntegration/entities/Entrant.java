@@ -1,4 +1,5 @@
 package com.startGgIntegration.entities;
+//authored by Liam Kelly, 22346317
 
 public class Entrant {
     private String name;

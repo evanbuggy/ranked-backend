@@ -1,4 +1,5 @@
 package com.startGgIntegration;
+//authored by Liam Kelly, 22346317
 
 import com.startGgIntegration.systemEvents.EventImported;
 import com.startGgIntegration.systemEvents.ImportFailure;

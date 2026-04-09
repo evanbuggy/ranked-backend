@@ -1,5 +1,6 @@
 
 package com.shared.valueObjects;
+//authored by Liam Kelly, 22346317
 
 public record EventGroupId(int value) {
     public EventGroupId {

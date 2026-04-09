@@ -1,5 +1,5 @@
     package com.shared.entities;
-
+//authored by Liam Kelly, 22346317
 
     public class ImportedMatch {
         private final int winnerId;

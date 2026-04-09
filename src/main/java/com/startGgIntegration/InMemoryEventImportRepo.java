@@ -1,4 +1,5 @@
 package com.startGgIntegration;
+//authored by Liam Kelly, 22346317
 
 import org.springframework.stereotype.Component;
 import java.util.*;
