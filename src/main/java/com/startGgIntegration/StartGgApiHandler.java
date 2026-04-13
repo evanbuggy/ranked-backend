@@ -7,30 +7,19 @@
     import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
-    import java.net.URI;
-    import java.net.http.*;
     import java.util.*;
     import com.startGgIntegration.entities.*;
     import com.startGgIntegration.valueObjects.ImportStatus;
-
-    import io.github.resilience4j.retry.annotation.Retry;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.ratelimiter.annotation.RateLimiter;    
+ 
 
     @Service
-    @Component
     public class StartGgApiHandler {
 
-        @Value("${app.startgg.api-key}")
-        private String apiKey;
-
-        private static final String API_URL = "https://api.start.gg/gql/alpha";
-        private final HttpClient http = HttpClient.newHttpClient();
+        public final StartGgHttpRequest httpRequest;
         private final ObjectMapper mapper = new ObjectMapper();
         private final EventImportRepo repo;
         
@@ -45,9 +34,10 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 
         
         private final ApplicationEventPublisher eventPublisher;
-        public StartGgApiHandler(@Autowired(required = false)EventImportRepo repo, ApplicationEventPublisher eventPublisher) {
+        public StartGgApiHandler(@Autowired(required = false)EventImportRepo repo, ApplicationEventPublisher eventPublisher, StartGgHttpRequest httpRequest) {
             this.repo = repo;
             this.eventPublisher = eventPublisher;
+            this.httpRequest = httpRequest;
         }
 
         // Converts URL to start gg 'slug'  e.g. "https://start.gg/tournament/my-tournament/event/my-event" will give back "tournament/my-tournament/event/my-event"
@@ -56,114 +46,6 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
             var m = java.util.regex.Pattern.compile("(tournament/[^/?#]+/event/[^/?#]+)").matcher(url); // This is the pattern being used - [^/?#] means that it cannot contain the special characters /, ? or #.
             return m.find() ? m.group(1) : ""; // return only the segment we want, if the segment is missing then return an empty string to signify failure
         }
-
-        // Make a GraphQL request and return the JSON
-        @CircuitBreaker(name = "startgg", fallbackMethod = "fallbackRequest")
-        @Retry(name = "startgg", fallbackMethod = "fallbackRequest")
-        @RateLimiter(name = "startgg", fallbackMethod = "fallbackRequest")
-        public String makeStartGgRequest(String slug, RequestType requesting, int pagenum, int perPage) {
-            try {
-                String query;
-                String body;
-                switch(requesting){
-                    case EVENTINFO:
-                        query = """
-                                query getEventInfo($slug: String){
-                                    event(slug:$slug){
-                                        id
-                                        name
-                                        videogame{id,displayName}
-                                        numEntrants
-                                        startAt
-                                        tournament{
-                                            name
-                                            id
-                                        }
-                                    }
-                                }
-                                """;
-                        body = mapper.writeValueAsString(Map.of(
-                        "query", query,
-                        "variables", Map.of("slug", slug)
-                        ));
-                        break;
-                    case ENTRANTS:
-                        query = """
-                                query getEventEntrants($slug: String, $page: Int, $perPage: Int) {
-                                event(slug: $slug) {
-                                    entrants(query: { page: $page, perPage: $perPage }) {
-                                    pageInfo{
-                                        totalPages
-                                    }
-                                    nodes {
-                                        name
-                                        id
-                                        participants {
-                                        user {
-                                            id
-                                        }
-                                        }
-                                    }
-                                    }
-                                }
-                                }
-                                """;
-                        body = mapper.writeValueAsString(Map.of(
-                            "query", query,
-                            "variables", Map.of("slug", slug, "page", pagenum, "perPage", perPage)
-                        ));
-                        break;
-                    case SETS:
-                        query = """
-                                query getEventSets($slug: String, $page: Int, $perPage: Int) {
-                                event(slug: $slug) {
-                                    sets(page: $page, perPage: $perPage) {
-                                    pageInfo {
-                                        totalPages
-                                    }
-                                    nodes {
-                                        winnerId
-                                        slots {
-                                        entrant {
-                                            id
-                                            name
-                                        }
-                                        }
-                                    }
-                                    }
-                                }
-                                }
-                                """;
-                        body = mapper.writeValueAsString(Map.of(
-                            "query", query,
-                            "variables", Map.of("slug", slug, "page", pagenum, "perPage", perPage)
-                        ));
-                    break;
-                    default:
-                        throw new IllegalArgumentException("invalid request type");
-                }
-                var request = HttpRequest.newBuilder()
-                    .uri(URI.create(API_URL))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
-
-                var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() != 200)
-                    throw new RuntimeException("API error: " + response.statusCode());
-
-                return response.body();
-
-            } catch (Exception e) {
-                throw new RuntimeException("Start.gg request failed: " + e.getMessage(), e);
-            }
-        }
-        public String fallbackRequest(String slug, RequestType type, int page, int perPage, Exception e) {
-            return "start.gg API unavailable.";
-        }
-
-
         // Import orchestrator
         public String importEvent(String url, int eventGroupId) {
             EventImport eventImport = null;
@@ -178,20 +60,20 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
                 repo.save(eventImport);
 
                 String slug = formatUrl_toSlug(url);
-                String eventInfo_JSON = makeStartGgRequest(slug, RequestType.EVENTINFO,0,0);
+                String eventInfo_JSON = httpRequest.makeStartGgRequest(slug, RequestType.EVENTINFO,0,0);
 
                 //get the first page - if there are more pages, then follow-up requests will be needed.
                 //This is necessary because of rate limits with start gg's API
-                String pageOneSets_JSON = makeStartGgRequest(slug, RequestType.SETS,1,SETS_PERPAGECOUNT);
+                String pageOneSets_JSON = httpRequest.makeStartGgRequest(slug, RequestType.SETS,1,SETS_PERPAGECOUNT);
                 int totalPages_sets = parseTotalPages(pageOneSets_JSON, "sets");
 
-                String pageOneEntrants_JSON = makeStartGgRequest(slug, RequestType.ENTRANTS,1,ENTRANTS_PERPAGECOUNT);
+                String pageOneEntrants_JSON = httpRequest.makeStartGgRequest(slug, RequestType.ENTRANTS,1,ENTRANTS_PERPAGECOUNT);
                 int totalPages_entrants = parseTotalPages(pageOneEntrants_JSON, "entrants");
 
                 StartGgEvent myEvent = parseEvent(eventInfo_JSON);
                 List<Entrant> entrants = parseEntrants(pageOneEntrants_JSON);
                 for (int page = 2; page <= totalPages_entrants; page++) {
-                    String perPage_JSON = makeStartGgRequest(slug, RequestType.ENTRANTS, page, ENTRANTS_PERPAGECOUNT);
+                    String perPage_JSON = httpRequest.makeStartGgRequest(slug, RequestType.ENTRANTS, page, ENTRANTS_PERPAGECOUNT);
                     entrants.addAll(parseEntrants(perPage_JSON));
                 }
 
@@ -207,7 +89,7 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
                 // Now pass the map into every parseMatches call
                 List<ImportedMatch> matches = new ArrayList<>(parseMatches(pageOneSets_JSON, entrantToGlobal));
                 for (int page = 2; page <= totalPages_sets; page++) {
-                    String perPage_JSON = makeStartGgRequest(slug, RequestType.SETS, page, SETS_PERPAGECOUNT);
+                    String perPage_JSON = httpRequest.makeStartGgRequest(slug, RequestType.SETS, page, SETS_PERPAGECOUNT);
                     matches.addAll(parseMatches(perPage_JSON, entrantToGlobal));
                 }
 
@@ -217,7 +99,7 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
                 return "Import complete for "+myEvent.getTournamentName()+ ": "+ myEvent.getEventName()+"... has " + matches.size() + " matches among " + entrants.size()+ " entrants";
 
             } catch (Exception e) {
-                System.out.println("=== Import failed: " + e.getMessage());
+                //System.out.println("=== Import failed: " + e.getMessage());
                 eventImport.status_fail(e.getMessage());
                 repo.save(eventImport);
                 return "Import failed: " + e.getMessage();

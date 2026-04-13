@@ -23,9 +23,25 @@ resilience4j:
   ratelimiter:
     instances:
       startgg:
-        limit-for-period: 12
-        limit-refresh-period: 10s
-        timeout-duration: 10s
+        limit-for-period: 30
+        limit-refresh-period: 30s
+        timeout-duration: 180s
+  retry:
+    instances:
+      startgg:
+        max-attempts: 3
+        wait-duration: 2s
+        ignore-exceptions:
+          - io.github.resilience4j.ratelimiter.RequestNotPermitted
+  circuitbreaker:
+    instances:
+      startgg:
+        failure-rate-threshold: 50
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 30s
+        ignore-exceptions:
+          - io.github.resilience4j.ratelimiter.RequestNotPermitted
+
 app:
   security:
     # Demo-only key. In a production deployment this must come from a secrets manager.
