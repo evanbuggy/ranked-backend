@@ -27,7 +27,7 @@ public class StartGgHttpRequest {
         @CircuitBreaker(name = "startgg", fallbackMethod = "circuitBreakerFallback") // open circuit in case of repeated errors
         @Retry(name = "startgg", fallbackMethod = "circuitBreakerFallback") // retry on error
         @RateLimiter(name = "startgg", fallbackMethod = "rateLimitFallback") // rate limiting: start gg has a rate limit of 80 requests per minute, so we need to limit the amount of possible requests.
-        public String makeStartGgRequest(String slug, RequestType requesting, int pagenum, int perPage) {
+        protected String makeStartGgRequest(String slug, RequestType requesting, int pagenum, int perPage) {
             try {
                 String query;
                 String body;
@@ -125,10 +125,10 @@ public class StartGgHttpRequest {
                 throw new RuntimeException("Start.gg request failed: " + e.getMessage(), e);
             }
         }
-        public String circuitBreakerFallback(String slug, RequestType type, int page, int perPage, Exception e) {
+        protected String circuitBreakerFallback(String slug, RequestType type, int page, int perPage, Exception e) {
             return "Start.gg API unavailable. Try again later.";
         }
-        public String rateLimitFallback(String slug, RequestType type, int page, int perPage, Exception e) {
+        protected String rateLimitFallback(String slug, RequestType type, int page, int perPage, Exception e) {
             return "Start.gg API rate limit exceeded. Try again later.";
         }
 }

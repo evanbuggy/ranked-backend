@@ -34,7 +34,7 @@ import org.springframework.stereotype.Service;
 
         
         private final ApplicationEventPublisher eventPublisher;
-        public StartGgApiHandler(@Autowired(required = false)EventImportRepo repo, ApplicationEventPublisher eventPublisher, StartGgHttpRequest httpRequest) {
+        public StartGgApiHandler(@Autowired(required = true)EventImportRepo repo, ApplicationEventPublisher eventPublisher, StartGgHttpRequest httpRequest) {
             this.repo = repo;
             this.eventPublisher = eventPublisher;
             this.httpRequest = httpRequest;
@@ -102,6 +102,7 @@ import org.springframework.stereotype.Service;
                 //System.out.println("=== Import failed: " + e.getMessage());
                 eventImport.status_fail(e.getMessage());
                 repo.save(eventImport);
+                eventImport.pullDomainEvents().forEach(eventPublisher::publishEvent);
                 return "Import failed: " + e.getMessage();
             }
         }
