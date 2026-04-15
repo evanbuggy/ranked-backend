@@ -7,10 +7,8 @@
     import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.stereotype.Component;
+import com.shared.EventPublisher;
 import org.springframework.stereotype.Service;
-
     import java.util.*;
     import com.startGgIntegration.entities.*;
     import com.startGgIntegration.valueObjects.ImportStatus;
@@ -21,8 +19,7 @@ import org.springframework.stereotype.Service;
 
         public final StartGgHttpRequest httpRequest;
         private final ObjectMapper mapper = new ObjectMapper();
-        private final EventImportRepo repo;
-        
+        private final EventImportRepo repo; 
         
         private static final int ENTRANTS_PERPAGECOUNT = 499;
         private static final int SETS_PERPAGECOUNT = 249;
@@ -33,8 +30,8 @@ import org.springframework.stereotype.Service;
         }  
 
         
-        private final ApplicationEventPublisher eventPublisher;
-        public StartGgApiHandler(@Autowired(required = true)EventImportRepo repo, ApplicationEventPublisher eventPublisher, StartGgHttpRequest httpRequest) {
+        private final EventPublisher eventPublisher;
+        public StartGgApiHandler(@Autowired(required = true)EventImportRepo repo, EventPublisher eventPublisher, StartGgHttpRequest httpRequest) {
             this.repo = repo;
             this.eventPublisher = eventPublisher;
             this.httpRequest = httpRequest;

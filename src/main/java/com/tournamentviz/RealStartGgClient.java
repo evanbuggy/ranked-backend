@@ -1,31 +1,31 @@
 package com.tournamentviz;
-//authored by Liam Kelly, 22346317
 
+import com.shared.RabbitMqConfiguration;
 import com.startGgIntegration.StartGgApiHandler;
+import com.startGgIntegration.systemEvents.EventImported;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
 @ConditionalOnProperty(name = "app.startgg.mode", havingValue = "real")
 public class RealStartGgClient implements StartggClient {
 
-    private StartGgApiHandler myHandler;
-    private StartggTournamentData lastImport = null;
+    private final StartGgApiHandler myHandler;
+    private CompletableFuture<StartggTournamentData> pendingImport;
 
     public RealStartGgClient(StartGgApiHandler handler) {
-        //System.out.println("Initializing RealStartggClient with StartGgApiHandler: " + handler);
         this.myHandler = handler;
     }
 
-    @EventListener
-    public void onEventImported(com.startGgIntegration.systemEvents.EventImported event) {
-        //System.out.println("=== EventImported received: " + event.players().size() + " players, " + event.matches().size() + " matches");
-
+    @RabbitListener(queues = RabbitMqConfiguration.EVENT_IMPORTED_QUEUE)
+    public void onEventImported(EventImported event) {
         List<StartggPlayer> players = event.players().stream()
             .map(p -> new StartggPlayer(String.valueOf(p.getGlobalStartGgId()), p.getTag()))
             .collect(Collectors.toList());
@@ -35,23 +35,32 @@ public class RealStartGgClient implements StartggClient {
             var m = event.matches().get(i);
             matches.add(new StartggMatch(
                 "m" + i, i,
-                String.valueOf(m.winnerId()), //p1
-                String.valueOf(m.loserId()), //p2
-                String.valueOf(m.winnerId()), //winner
+                String.valueOf(m.getWinnerId()),
+                String.valueOf(m.getLoserId()),
+                String.valueOf(m.getWinnerId()),
                 Instant.now()
             ));
         }
-        this.lastImport = new StartggTournamentData(players, matches);
+
+        StartggTournamentData data = new StartggTournamentData(players, matches);
+
+        // complete the future so fetchTournament() can return
+        if (pendingImport != null) {
+            pendingImport.complete(data);
+        }
     }
 
     @Override
     public StartggTournamentData fetchTournament(String tournamentRef) {
-        lastImport = null;
-        myHandler.importEvent(tournamentRef, 1); // publishes EventImported synchronously
-        if (lastImport == null) {
-            //System.out.println("=== No EventImported event received — import likely failed");
+        pendingImport = new CompletableFuture<>();
+        myHandler.importEvent(tournamentRef, 1);
+        try {
+            // wait up to 30 seconds for RabbitMQ to deliver the event
+            return pendingImport.get(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
             return new StartggTournamentData(new ArrayList<>(), new ArrayList<>());
+        } finally {
+            pendingImport = null;
         }
-        return lastImport;
     }
 }

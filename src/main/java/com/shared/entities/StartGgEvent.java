@@ -1,13 +1,15 @@
 package com.shared.entities;
 //authored by Liam Kelly, 22346317
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+
 public class StartGgEvent {
     String tournamentName;
     int tournamentId;
     String eventName;
     int eventId;
     long eventDate;
-
+    @JsonCreator
     public StartGgEvent(String tournamentName, int tournamentId, String eventName, int eventId, long eventDate) {
         this.tournamentName = tournamentName;
         this.tournamentId = tournamentId;
