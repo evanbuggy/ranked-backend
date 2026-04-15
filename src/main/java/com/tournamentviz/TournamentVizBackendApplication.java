@@ -64,7 +64,7 @@ import java.util.stream.Collectors;
  *
  * This keeps the codebase runnable without requiring multiple deployments or external brokers.
  */
-@SpringBootApplication(scanBasePackages = {"com.tournamentviz", "com.startGgIntegration"})
+@SpringBootApplication(scanBasePackages = {"com.tournamentviz", "com.startGgIntegration", "com.shared"})
 public class TournamentVizBackendApplication {
   public static void main(String[] args) {
     SpringApplication.run(TournamentVizBackendApplication.class, args);

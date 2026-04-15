@@ -13,7 +13,6 @@ public class EventPublisher {
     public EventPublisher(RabbitTemplate rabbitTemplate) {
         this.rabbitTemplate = rabbitTemplate;
     }
-
     public void publishEvent(Object event) {
         if (event instanceof EventImported) {
             rabbitTemplate.convertAndSend(
