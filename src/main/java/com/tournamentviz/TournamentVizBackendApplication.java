@@ -54,6 +54,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import static com.shared.exceptions.MyApplicationExceptions.*;
 
 /**
  * “Single-deployable” implementation for the assignment’s proof-of-work.
@@ -76,18 +77,7 @@ public class TournamentVizBackendApplication {
   }
 }
 
-// -----------------------------
-// API error handling
-// -----------------------------
-// The lightweight UI depends on error messages from failed login/register calls.
-@org.springframework.web.bind.annotation.RestControllerAdvice
-class ApiExceptionAdvice {
-  @org.springframework.web.bind.annotation.ExceptionHandler(IllegalArgumentException.class)
-  public ResponseEntity<Map<String, Object>> onIllegalArgument(IllegalArgumentException ex) {
-    return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
-        .body(Map.of("error", ex.getMessage()));
-  }
-}
+
 
 // -----------------------------
 // Security (JWT token auth)
@@ -730,10 +720,10 @@ class AuthController {
   @PostMapping("/register")
   AuthResponse register(@Valid @RequestBody RegisterRequest req) {
     if (userRepository.findByUsername(req.username()).isPresent()) {
-      throw new IllegalArgumentException("username already exists");
+      throw new ConflictException("username already exists");
     }
     if (userRepository.findByEmail(req.email()).isPresent()) {
-      throw new IllegalArgumentException("email already exists");
+      throw new ConflictException("email already exists");
     }
 
     String hash = passwordEncoder.encode(req.password());
@@ -747,9 +737,9 @@ class AuthController {
   AuthResponse login(@Valid @RequestBody LoginRequest req) {
     Optional<User> userOpt =
         userRepository.findByUsername(req.usernameOrEmail()).or(() -> userRepository.findByEmail(req.usernameOrEmail()));
-    User user = userOpt.orElseThrow(() -> new IllegalArgumentException("invalid credentials"));
+    User user = userOpt.orElseThrow(() -> new UnauthorizedException("invalid credentials"));
     if (!passwordEncoder.matches(req.password(), user.passwordHash)) {
-      throw new IllegalArgumentException("invalid credentials");
+      throw new UnauthorizedException("invalid credentials");
     }
     String token = tokenProvider.createToken(String.valueOf(user.id));
     return new AuthResponse(user.id, user.username, token);
@@ -837,7 +827,7 @@ class EventGroupInternalController {
   EventGroupSummary get(@PathVariable long eventGroupId) {
     long userId = CurrentUser.userId();
     MembershipRole role = AuthorizationService.requireMembershipRole(memberRepository, eventGroupId, userId);
-    EventGroup eg = eventGroupRepository.findById(eventGroupId).orElseThrow();
+    EventGroup eg = eventGroupRepository.findById(eventGroupId).orElseThrow(() -> new NotFoundException("event group could not be found?"));
     return new EventGroupSummary(eg.id, eg.name, eg.statisticsRevision);
   }
 
@@ -859,16 +849,16 @@ class EventGroupInternalController {
     long actorId = CurrentUser.userId();
     MembershipRole role = AuthorizationService.requireMembershipRole(memberRepository, eventGroupId, actorId);
     if (!(role == MembershipRole.OWNER || role == MembershipRole.ADMIN)) {
-      throw new IllegalArgumentException("only OWNER/ADMIN can link tournaments");
+      throw new ForbiddenException("only OWNER/ADMIN can link tournaments");
     }
 
     String tournamentRef = TournamentRefExtractor.normalize(req.startggLink());
     if (tournamentRef.isBlank()) {
-      throw new IllegalArgumentException("could not parse tournament reference from startggLink");
+      throw new BadRequestException("could not parse tournament reference from startggLink");
     }
 
     linkRepository.findByEventGroupIdAndTournamentRef(eventGroupId, tournamentRef).ifPresent(existing -> {
-      throw new IllegalArgumentException("tournament already linked to this event group");
+      throw new ConflictException("tournament already linked to this event group");
     });
 
     linkRepository.save(new EventGroupTournamentLink(eventGroupId, tournamentRef, req.startggLink(), actorId));
@@ -1213,7 +1203,7 @@ class AuthorizationService {
   ) {
     return memberRepository.findByEventGroupIdAndUserId(eventGroupId, userId)
         .map(m -> m.role)
-        .orElseThrow(() -> new IllegalArgumentException("not a member of this event group"));
+        .orElseThrow(() -> new ForbiddenException("not a member of this event group"));
   }
 
   static void requireRole(
@@ -1223,14 +1213,14 @@ class AuthorizationService {
       MembershipRole required
   ) {
     MembershipRole actual = requireMembershipRole(memberRepository, eventGroupId, userId);
-    if (actual != required) throw new IllegalArgumentException("forbidden");
+    if (actual != required) throw new ForbiddenException("forbidden");
   }
 }
 
 class CurrentUser {
   static long userId() {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-    if (auth == null) throw new IllegalArgumentException("unauthenticated");
+    if (auth == null) throw new UnauthorizedException("unauthenticated");
     Object principal = auth.getPrincipal();
     if (principal instanceof MinimalUserDetails m) return m.userId;
     return Long.parseLong(String.valueOf(principal));
