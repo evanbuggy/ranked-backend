@@ -317,19 +317,33 @@ class User {
   }
 }
 
+/**
+ * Represents a named collection of tournaments and players whose match results
+ * are used to compute a shared Elo leaderboard.
+ *
+ * <p>Each EventGroup is owned by the user who created it. Members can be added
+ * with different roles (OWNER, ADMIN, MEMBER). After every successful import
+ * and rating recomputation, {@code statisticsRevision} is incremented so clients
+ * can detect when rankings have changed.</p>
+ */
 @Entity(name = "event_groups")
 class EventGroup {
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   long id;
 
+  /** Human-readable name for the group, e.g. "Friday Night Smash". */
   @Column(nullable = false, length = 120)
   String name;
 
+  /** ID of the user who originally created this group; always an OWNER member. */
   @Column(nullable = false)
   long createdByUserId;
 
-  // statsRevision increments after successful rating recomputation
+  /**
+   * Monotonically increasing counter incremented after each successful Elo
+   * recomputation. Clients can compare this value to detect stale cached rankings.
+   */
   @Column(nullable = false)
   long statisticsRevision = 0;
 
@@ -341,6 +355,14 @@ class EventGroup {
   }
 }
 
+/**
+ * Records a user's membership in an {@link EventGroup} along with their role.
+ *
+ * <p>A unique constraint on {@code (eventGroupId, userId)} ensures that a user
+ * cannot hold more than one role within the same group. Roles are defined by
+ * {@link MembershipRole}: OWNER has full control, ADMIN can link tournaments,
+ * and MEMBER has read-only access to rankings.</p>
+ */
 @Entity(name = "event_group_members")
 @Table(uniqueConstraints = @UniqueConstraint(columnNames = {"eventGroupId", "userId"}))
 class EventGroupMember {
@@ -348,12 +370,15 @@ class EventGroupMember {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   long id;
 
+  /** The group this membership belongs to. */
   @Column(nullable = false)
   long eventGroupId;
 
+  /** The application user holding this membership. */
   @Column(nullable = false)
   long userId;
 
+  /** Permission level granted to the user within this group. */
   @Enumerated(EnumType.STRING)
   MembershipRole role;
 
@@ -366,6 +391,14 @@ class EventGroupMember {
   }
 }
 
+/**
+ * Links a Start.gg tournament to an {@link EventGroup} so that its match results
+ * can be imported and included in the group's Elo ratings.
+ *
+ * <p>A unique constraint on {@code (eventGroupId, tournamentRef)} prevents the
+ * same tournament from being linked more than once to the same group. Once linked,
+ * an {@link ImportJob} is automatically created to fetch the tournament data.</p>
+ */
 @Entity(name = "event_group_tournaments")
 @Table(uniqueConstraints = @UniqueConstraint(columnNames = {"eventGroupId", "tournamentRef"}))
 class EventGroupTournamentLink {
@@ -373,15 +406,19 @@ class EventGroupTournamentLink {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   long id;
 
+  /** The group this tournament has been linked to. */
   @Column(nullable = false)
   long eventGroupId;
 
+  /** Normalised Start.gg slug used as a stable identifier across imports. */
   @Column(nullable = false, length = 180)
   String tournamentRef; // normalized slug/id
 
+  /** Original Start.gg URL supplied by the user when creating the link. */
   @Column(nullable = false, length = 500)
   String startggLink;
 
+  /** ID of the user (OWNER or ADMIN) who created this link. */
   @Column(nullable = false)
   long linkedByUserId;
 
@@ -395,32 +432,58 @@ class EventGroupTournamentLink {
   }
 }
 
+/**
+ * Tracks the lifecycle of a single tournament data import for an {@link EventGroup}.
+ *
+ * <p>Jobs move through the following state machine managed by
+ * {@link TournamentImportCoordinator}:</p>
+ * <pre>
+ *   PENDING → RUNNING → COMPLETED
+ *                     ↘ FAILED
+ * </pre>
+ * <p>If a job reaches FAILED, {@code failureReason} will contain a description
+ * of the error. Once COMPLETED, the coordinator triggers a full Elo recomputation
+ * for the owning event group.</p>
+ */
 @Entity(name = "import_jobs")
 class ImportJob {
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   long id;
 
+  /** The event group whose ratings will be updated after this import completes. */
   @Column(nullable = false)
   long eventGroupId;
 
+  /** Normalised Start.gg tournament slug identifying the data to import. */
   @Column(nullable = false, length = 180)
   String tournamentRef;
 
+  /** Current processing state of this job. */
   @Enumerated(EnumType.STRING)
   ImportStatus status;
 
+  /** ID of the user who triggered this import (must be OWNER or ADMIN). */
   @Column(nullable = false)
   long createdByUserId;
 
+  /** Timestamp at which the job was enqueued. */
   @Column(nullable = false)
   Instant createdAt = Instant.now();
 
+  /** Timestamp at which the coordinator began processing this job; null if still PENDING. */
   Instant startedAt;
+
+  /** Timestamp at which the job reached a terminal state (COMPLETED or FAILED). */
   Instant completedAt;
+
+  /** Human-readable error message populated when the job transitions to FAILED. */
   String failureReason;
 
-  // used for versioning when Start.gg returns updated results
+  /**
+   * Version tag for the imported data, used to detect and re-import updated
+   * results when Start.gg provides a revised dataset for the same tournament.
+   */
   @Column(nullable = false)
   String sourceVersion = "fixture-v1";
 
@@ -752,6 +815,17 @@ class AuthController {
   }
 }
 
+/**
+ * REST controller exposing the public Event Group API under {@code /api/event-groups}.
+ *
+ * <p>Endpoints require the caller to be authenticated. The authenticated user's ID
+ * is read from the JWT via {@link CurrentUser#userId()}.</p>
+ *
+ * <ul>
+ *   <li>{@code POST /api/event-groups} – creates a new group and assigns the creator as OWNER.</li>
+ *   <li>{@code GET  /api/event-groups} – lists all groups the authenticated user belongs to.</li>
+ * </ul>
+ */
 @RestController
 @RequestMapping("/api/event-groups")
 class EventGroupController {
@@ -800,8 +874,19 @@ class EventGroupController {
 }
 
 /**
- * For proof-of-work we avoid complex query composition.
- * If you want a complete query implementation, tell me and I’ll extend the endpoints.
+ * REST controller for member-only operations on an existing {@link EventGroup},
+ * exposed under {@code /api/internal-event-groups}.
+ *
+ * <p>All endpoints verify that the caller holds at least MEMBER-level access before
+ * proceeding. Operations that modify group state (adding members, linking tournaments)
+ * require OWNER or ADMIN role and are enforced via {@link AuthorizationService}.</p>
+ *
+ * <ul>
+ *   <li>{@code GET  /{id}}                  – retrieves group summary.</li>
+ *   <li>{@code POST /{id}/members}           – adds a user to the group (OWNER only).</li>
+ *   <li>{@code POST /{id}/tournaments}       – links a Start.gg tournament and enqueues an import (OWNER/ADMIN).</li>
+ *   <li>{@code GET  /{id}/imports}           – lists all import jobs for the group.</li>
+ * </ul>
  */
 @RestController
 @RequestMapping("/api/internal-event-groups")
@@ -990,6 +1075,24 @@ class RatingsQueryController {
 // Worker (import + recompute)
 // -----------------------------
 
+/**
+ * Background service that processes pending {@link ImportJob}s and triggers
+ * Elo recomputation after each successful tournament import.
+ *
+ * <p>A single-threaded scheduler calls {@link #tick()} every two seconds. Each
+ * tick fetches up to 50 PENDING jobs and processes them sequentially. An
+ * {@code inFlight} map prevents a job from being picked up a second time before
+ * the first execution has finished.</p>
+ *
+ * <p>Import lifecycle per job:</p>
+ * <ol>
+ *   <li>Status set to RUNNING and {@code startedAt} recorded.</li>
+ *   <li>Tournament data fetched from the Start.gg API via {@link StartggClient}.</li>
+ *   <li>Players and matches upserted via {@link MatchRepositoryAdapter}.</li>
+ *   <li>Status set to COMPLETED; full Elo recomputation triggered for the group.</li>
+ *   <li>On any exception: status set to FAILED and {@code failureReason} recorded.</li>
+ * </ol>
+ */
 @Service
 class TournamentImportCoordinator {
   private final ImportJobRepository importJobRepository;
@@ -1000,7 +1103,7 @@ class TournamentImportCoordinator {
 
   private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-  // used to prevent the same job being executed twice concurrently in this “proof of work”
+  /** Guards against concurrent execution of the same job within a single JVM instance. */
   private final Map<Long, Boolean> inFlight = new ConcurrentHashMap<>();
 
   TournamentImportCoordinator(
@@ -1019,6 +1122,16 @@ class TournamentImportCoordinator {
     scheduler.scheduleWithFixedDelay(this::tick, 1, 2, TimeUnit.SECONDS);
   }
 
+  /**
+   * Creates a new PENDING {@link ImportJob} for the given tournament, or returns
+   * an existing active/completed job if one already exists for the same
+   * {@code (eventGroupId, tournamentRef)} pair.
+   *
+   * @param eventGroupId    the group whose ratings will be updated after import
+   * @param tournamentRef   normalised Start.gg tournament slug
+   * @param createdByUserId ID of the user requesting the import
+   * @return the newly created or pre-existing job
+   */
   ImportJob enqueueImport(long eventGroupId, String tournamentRef, long createdByUserId) {
     // Avoid duplicate active jobs for same tournament and event group
     // (proof of work; full policy might allow versioning)
@@ -1195,7 +1308,22 @@ class TournamentRefExtractor {
 // Authorization
 // -----------------------------
 
+/**
+ * Utility class providing static authorization checks for Event Group operations.
+ *
+ * <p>Methods in this class are called from controller layer before any state-mutating
+ * operation. They throw {@link IllegalArgumentException} (mapped to 400/403 by the
+ * global exception handler) if the requesting user does not meet the required
+ * membership criteria.</p>
+ */
 class AuthorizationService {
+
+  /**
+   * Verifies that {@code userId} is a member of {@code eventGroupId} and returns
+   * their {@link MembershipRole}.
+   *
+   * @throws IllegalArgumentException if the user has no membership in the group
+   */
   static MembershipRole requireMembershipRole(
       EventGroupMemberRepository memberRepository,
       long eventGroupId,
@@ -1206,6 +1334,12 @@ class AuthorizationService {
         .orElseThrow(() -> new ForbiddenException("not a member of this event group"));
   }
 
+  /**
+   * Verifies that {@code userId} holds exactly the {@code required} role within
+   * {@code eventGroupId}.
+   *
+   * @throws IllegalArgumentException if the user is not a member or holds a different role
+   */
   static void requireRole(
       EventGroupMemberRepository memberRepository,
       long eventGroupId,
